@@ -55,7 +55,10 @@ app.add_middleware(
 # -------------------------
 # API Routes
 # -------------------------
-
+@app.get("/")
+def health_check():
+    return {"status": "ok", "message": "Green CI/CD Backend is running"}
+    
 app.include_router(project.router)
 app.include_router(user.router)
 app.include_router(webhook.router)
