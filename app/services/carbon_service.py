@@ -1,22 +1,33 @@
 from sqlalchemy.orm import Session
 from ..models import RegionCarbonIntensity
+from .carbon_intensity_service import get_carbon_intensity
 
 
 def calculate_energy(cpu_usage, memory_usage, duration_minutes):
-    # Example formula (we can refine later)
-    base_power_kw = (cpu_usage * 0.5) + (memory_usage * 0.2)
-    return base_power_kw * duration_minutes / 60
+    cpu_power_w = 15 + (cpu_usage / 100) * 35
+    memory_power_w = 10 + (memory_usage / 100) * 10
+
+    total_power_w = cpu_power_w + memory_power_w
+
+    pue = 1.2
+
+    energy_kwh = (
+        total_power_w
+        * pue
+        * (duration_minutes / 60)
+        / 1000
+    )
+
+    return energy_kwh
 
 
 def calculate_carbon(db: Session, region: str, energy_kwh: float):
-    region_data = db.query(RegionCarbonIntensity).filter(
-        RegionCarbonIntensity.region == region
-    ).first()
+    carbon_intensity = get_carbon_intensity(db, region)
 
-    if not region_data:
-        raise Exception("Region not found")
+    carbon_kg = (
+        energy_kwh * carbon_intensity
+    ) / 1000
 
-    carbon_kg = (energy_kwh * region_data.carbon_intensity_g_per_kwh) / 1000
     return carbon_kg
 
 def suggest_optimized_region(db: Session, project_id):

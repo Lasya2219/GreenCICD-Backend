@@ -5,10 +5,14 @@ from ..services.carbon_service import calculate_energy, calculate_carbon, sugges
 from ..schemas import OptimizationResponse
 from sqlalchemy import func
 from ..database import SessionLocal
-from ..models import Project, PipelineRun
+from ..models import Project, PipelineRun, GitHubInstallation, User
 from ..schemas import ProjectResponse, ProjectCreate, PipelineRunResponse, PipelineRunCreate
 from ..dependencies import get_current_user
-from ..models import User
+from ..services.github_service import (
+    parse_github_repo,
+    verify_repository_access,
+    ensure_greencicd_workflow
+)
 
 router = APIRouter()
 
@@ -24,24 +28,70 @@ def get_db():
 # ---------------- CREATE PROJECT ----------------
 
 @router.post("/projects", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
-def create_project(
+async def create_project(
     data: ProjectCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    # 1. Identify repository as owner/repo
+    parsed = parse_github_repo(data.repo_url)
+    if not parsed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid GitHub repository URL. Please enter a valid URL like https://github.com/owner/repo."
+        )
 
+    owner, repo = parsed
+
+    # 2. Find GitHub installation belonging to current GreenCICD user
+    installations = db.query(GitHubInstallation).filter(
+        GitHubInstallation.user_id == current_user.id
+    ).all()
+
+    if not installations:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GitHub not connected. Please click 'Connect GitHub' to authorize the GreenCICD GitHub App before creating a project."
+        )
+
+    # 3. Verify that an installation can access that repository using installation token
+    verified_installation_id = None
+    for inst in installations:
+        has_access = await verify_repository_access(inst.installation_id, owner, repo)
+        if has_access:
+            verified_installation_id = inst.installation_id
+            break
+
+    if not verified_installation_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Repository '{owner}/{repo}' is not accessible through your connected GitHub App installation. Please grant repository access in your GitHub App settings."
+        )
+
+    # 4. Automatically ensure .github/workflows/greencicd.yml exists in the repository
+    success, err_msg = await ensure_greencicd_workflow(verified_installation_id, owner, repo)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to configure GreenCICD workflow in repository: {err_msg}"
+        )
+
+    # 5. Create Project with github_installation_id attached
     project = Project(
         id=uuid4(),
-        user_id=current_user.id,   # 🔥 Take user from JWT
+        user_id=current_user.id,
         project_name=data.project_name,
-        repo_url=data.repo_url
+        repo_url=data.repo_url,
+        github_installation_id=verified_installation_id
     )
+
 
     db.add(project)
     db.commit()
     db.refresh(project)
 
     return project
+
 
 
 # ---------------- ADD PIPELINE RUN ----------------

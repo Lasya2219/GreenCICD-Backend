@@ -30,11 +30,18 @@ class ProjectResponse(BaseModel):
     user_id: UUID
     project_name: str
     repo_url: Optional[str] = None
+    github_installation_id: Optional[int] = None
     created_at: datetime
 
 
     class Config:
         from_attributes = True
+
+
+class GitHubStatusResponse(BaseModel):
+    connected: bool
+    installations: list[int]
+
 
 
 class PipelineRunResponse(BaseModel):
@@ -77,3 +84,22 @@ class OptimizationResponse(BaseModel):
     suggested_region: str
     carbon_reduction_percent: float
     recommendation: str
+
+
+# ---------- AI OPTIMIZATION SCHEMAS ----------
+
+from typing import Literal, List
+
+class AIOptimizationRecommendation(BaseModel):
+    title: str
+    priority: Literal["high", "medium", "low"]
+    problem: str
+    evidence: str
+    recommendation: str
+    expected_impact: str
+    effort: Literal["low", "medium", "high"]
+
+
+class AIOptimizationResponse(BaseModel):
+    summary: str
+    recommendations: List[AIOptimizationRecommendation]
