@@ -1,6 +1,7 @@
 fastapi
 uvicorn[standard]
 psycopg2-binary
+psycopg
 sqlalchemy
 python-dotenv
 bcrypt==4.0.1
